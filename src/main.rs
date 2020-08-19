@@ -65,7 +65,7 @@ async fn get(url: &str) -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                                 let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
-                                println!("{} \"https://www.mcbbs.net/{} {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
+                                println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
                                     .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
                             }
                             break;
@@ -122,6 +122,7 @@ async fn water() -> Result<(), Box<dyn std::error::Error>> {
 
 
 fn main() {
+    println!("1 2 3 4 5 爬 单 多 模 周 虚");
     loop {
         let mut input = String::new();
         stdin().read_line(&mut input).expect("read input failed");
@@ -164,6 +165,51 @@ fn main() {
                 });
             }
             "5" => {
+                println!("getting VOID question");
+                std::thread::spawn(|| {
+                    if let Err(err) = get(VOID) {
+                        eprintln!("{}", err);
+                    }
+                    println!("爬VOID结束")
+                });
+            }
+            "all" => {
+                println!("getting VANILLA question");
+                std::thread::spawn(|| {
+                    if let Err(err) = get(VANILLA) {
+                        eprintln!("{}", err);
+                    }
+                    println!("爬vanilla结束")
+                });
+
+
+                println!("getting MU question");
+                std::thread::spawn(|| {
+                    if let Err(err) = get(MU) {
+                        eprintln!("{}", err);
+                    }
+                    println!("爬MU结束")
+                });
+
+
+                println!("getting MOD question");
+                std::thread::spawn(|| {
+                    if let Err(err) = get(MOD) {
+                        eprintln!("{}", err);
+                    }
+                    println!("爬MOD结束")
+                });
+
+
+                println!("getting AROUND question");
+                std::thread::spawn(|| {
+                    if let Err(err) = get(AROUND) {
+                        eprintln!("{}", err);
+                    }
+                    println!("爬AROUND结束")
+                });
+
+
                 println!("getting VOID question");
                 std::thread::spawn(|| {
                     if let Err(err) = get(VOID) {
