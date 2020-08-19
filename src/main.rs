@@ -65,7 +65,7 @@ async fn get(url: &str) -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                                 let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
-                                println!("{} https://www.mcbbs.net/{} {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
+                                println!("{} \"https://www.mcbbs.net/{} {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
                                     .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
                             }
                             break;
@@ -108,7 +108,7 @@ async fn water() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                     }
                                 }
-                                println!("{} \"https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
+                                println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
                                     .to_string(), &matcher["tid"], &matcher["title"]);
                             }
                         }
