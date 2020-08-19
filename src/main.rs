@@ -32,49 +32,54 @@ async fn get(url: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut cookie_file = File::open("cookie.cookie").unwrap();
     let mut cookie = String::new();
     cookie_file.read_to_string(&mut cookie).unwrap();
-    let mut list = Vec::with_capacity(71);
+    let mut list = LinkedList::new();
     loop {
-        if let Ok(resp) = reqwest::Client::new().get(url)
+        match reqwest::Client::new().get(url)
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
             .header("Cookie", &cookie)
             .timeout(Duration::from_secs(5)).send().await {
-            let lines: Vec<String> = resp.text().await.map(|c| c.lines().map(|l| l.to_string()).collect()).unwrap();
-            let mut i = 0;
-            let mut found = false;
-            while i < lines.len() {
-                let line = &lines[i];
+            Ok(resp) => {
+                let lines: Vec<String> = resp.text().await.map(|c| c.lines().map(|l| l.to_string()).collect()).unwrap();
+                let mut i = 0;
+                let mut found = false;
+                while i < lines.len() {
+                    let line = &lines[i];
 
-                let matcher = pattern.captures(&*line);
-                if let Some(matcher) = matcher {
-                    for j in 0..6 {
-                        if lines[i + j].contains("金粒") {
-                            if !list.contains(line) {
-                                if !found {
-                                    println!();
-                                    found = true;
-                                }
-                                list.push(line.clone());
-                                while list.len() > 70 {
-                                    list.pop();
-                                }
-                                unsafe {
-                                    if OPEN {
-                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
-                                            eprintln!("open failed {}", e);
+                    let matcher = pattern.captures(&*line);
+                    if let Some(matcher) = matcher {
+                        for j in 0..6 {
+                            if lines[i + j].contains("金粒") {
+                                if !list.contains(line) {
+                                    if !found {
+                                        println!();
+                                        found = true;
+                                    }
+                                    list.push_back(line.clone());
+                                    while list.len() > 70 {
+                                        list.pop_front();
+                                    }
+                                    unsafe {
+                                        if OPEN {
+                                            if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
+                                                eprintln!("open failed {}", e);
+                                            }
                                         }
                                     }
+                                    let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
+                                    println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
+                                        .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
                                 }
-                                let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
-                                println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
-                                    .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
+                                break;
                             }
-                            break;
                         }
                     }
+
+
+                    i += 1;
                 }
-
-
-                i += 1;
+            }
+            Err(e) => {
+                eprintln!("{}", e);
             }
         }
         std::thread::sleep(Duration::from_secs_f32(5.0));
@@ -84,36 +89,41 @@ async fn get(url: &str) -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::main]
 async fn water() -> Result<(), Box<dyn std::error::Error>> {
     let pattern: Regex = Regex::new(r#".*viewthread.*tid=(?P<tid>\d+).*"s xst">(?P<title>.*)</a>.*"#).unwrap();
-    let mut list = Vec::with_capacity(71);
+    let mut list = LinkedList::new();
     loop {
-        if let Ok(resp) = reqwest::Client::new().get("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no")
+        match reqwest::Client::new().get("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no")
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
             .timeout(Duration::from_secs(5)).send().await {
-            if let Ok(content) = resp.text().await {
-                let lines: Vec<&str> = content.lines().collect();
-                for line in lines {
-                    let matcher = pattern.captures(&*line);
-                    if let Some(matcher) = matcher {
-                        let tid = &matcher["tid"];
-                        if tid.parse().unwrap_or(9000000) > 1000000 {
-                            if !list.contains(&tid.to_string()) {
-                                list.push(tid.to_string());
-                                while list.len() > 70 {
-                                    list.pop();
-                                }
-                                unsafe {
-                                    if OPEN {
-                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
-                                            eprintln!("open failed {}", e);
+            Ok(resp) => {
+                if let Ok(content) = resp.text().await {
+                    let lines: Vec<&str> = content.lines().collect();
+                    for line in lines {
+                        let matcher = pattern.captures(&*line);
+                        if let Some(matcher) = matcher {
+                            let tid = &matcher["tid"];
+                            if tid.parse().unwrap_or(9000000) > 1000000 {
+                                if !list.contains(&tid.to_string()) {
+                                    list.push_back(tid.to_string());
+                                    while list.len() > 70 {
+                                        list.pop_front();
+                                    }
+                                    unsafe {
+                                        if OPEN {
+                                            if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
+                                                eprintln!("open failed {}", e);
+                                            }
                                         }
                                     }
+                                    println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
+                                        .to_string(), &matcher["tid"], &matcher["title"]);
                                 }
-                                println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
-                                    .to_string(), &matcher["tid"], &matcher["title"]);
                             }
                         }
                     }
                 }
+            }
+            Err(e) => {
+                eprintln!("get water failed: {}", e)
             }
         }
         std::thread::sleep(Duration::from_secs_f32(5.0));
