@@ -1,21 +1,15 @@
 //https://doc.rust-lang.org/book/
 
-#![allow(unused_imports, dead_code)]
 
-use std::any::Any;
-use std::borrow::BorrowMut;
-use std::collections::{HashMap, LinkedList, VecDeque};
-use std::convert::TryFrom;
+use std::collections::LinkedList;
 use std::fs::File;
-use std::io::{BufReader, Bytes, Read, stdin};
-use std::rc::Rc;
+use std::io::{Read, stdin};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local};
 use regex::Regex;
-use reqwest::header::COOKIE;
 use tokio::time::Duration;
-use webbrowser::Browser;
 
 const VANILLA: &str = "https://www.mcbbs.net/forum-qanda-1.html?mobile=no";
 const MU: &str = "https://www.mcbbs.net/forum-multiqanda-1.html?mobile=no";
@@ -23,10 +17,9 @@ const MOD: &str = "https://www.mcbbs.net/forum-modqanda-1.html?mobile=no";
 const AROUND: &str = "https://www.mcbbs.net/forum-etcqanda-1.html?mobile=no";
 const VOID: &str = "https://www.mcbbs.net/forum-peqanda-1.html?mobile=no";
 
-static mut OPEN: bool = false;
+static OPEN: AtomicBool = AtomicBool::new(false);
 
-#[tokio::main]
-async fn get(url: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn get(url: &str) {
     let pattern: Regex = Regex::new(".*(?P<url>thread-[0-9]+-[0-9]+-[0-9]+\\.html).*class=\"s xst\">(?P<title>.*)\n*</a>\n*").unwrap();
 
     let mut cookie_file = File::open("cookie.cookie").unwrap();
@@ -58,15 +51,13 @@ async fn get(url: &str) -> Result<(), Box<dyn std::error::Error>> {
                                     while list.len() > 70 {
                                         list.pop_front();
                                     }
-                                    unsafe {
-                                        if OPEN {
-                                            if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
-                                                eprintln!("open failed {}", e);
-                                            }
+                                    if OPEN.load(Ordering::Relaxed) {
+                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
+                                            eprintln!("open failed {}", e);
                                         }
                                     }
                                     let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
-                                    println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
+                                    println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
                                         .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
                                 }
                                 break;
@@ -82,12 +73,11 @@ async fn get(url: &str) -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("{}", e);
             }
         }
-        std::thread::sleep(Duration::from_secs_f32(5.0));
+        tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
     }
 }
 
-#[tokio::main]
-async fn water() -> Result<(), Box<dyn std::error::Error>> {
+async fn water() {
     let pattern: Regex = Regex::new(r#".*viewthread.*tid=(?P<tid>\d+).*"s xst">(?P<title>.*)</a>.*"#).unwrap();
     let mut list = LinkedList::new();
     loop {
@@ -107,14 +97,12 @@ async fn water() -> Result<(), Box<dyn std::error::Error>> {
                                     while list.len() > 70 {
                                         list.pop_front();
                                     }
-                                    unsafe {
-                                        if OPEN {
-                                            if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
-                                                eprintln!("open failed {}", e);
-                                            }
+                                    if OPEN.load(Ordering::Relaxed) {
+                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
+                                            eprintln!("open failed {}", e);
                                         }
                                     }
-                                    println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S%.3f")
+                                    println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
                                         .to_string(), &matcher["tid"], &matcher["title"]);
                                 }
                             }
@@ -126,12 +114,12 @@ async fn water() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("get water failed: {}", e)
             }
         }
-        std::thread::sleep(Duration::from_secs_f32(5.0));
+        tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
     }
 }
 
-
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("1 2 3 4 5 爬 单 多 模 周 虚");
     loop {
         let mut input = String::new();
@@ -140,113 +128,85 @@ fn main() {
         match input {
             "1" => {
                 println!("getting VANILLA question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(VANILLA) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(VANILLA).await;
                     println!("爬vanilla结束")
                 });
             }
             "2" => {
                 println!("getting MU question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(MU) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(MU).await;
                     println!("爬MU结束")
                 });
             }
             "3" => {
                 println!("getting MOD question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(MOD) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(MOD).await;
                     println!("爬MOD结束")
                 });
             }
             "4" => {
                 println!("getting AROUND question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(AROUND) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(AROUND).await;
                     println!("爬AROUND结束")
                 });
             }
             "5" => {
                 println!("getting VOID question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(VOID) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(VOID).await;
                     println!("爬VOID结束")
                 });
             }
             "all" => {
                 println!("getting VANILLA question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(VANILLA) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(VANILLA).await;
                     println!("爬vanilla结束")
                 });
 
-
                 println!("getting MU question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(MU) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(MU).await;
                     println!("爬MU结束")
                 });
-
-
                 println!("getting MOD question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(MOD) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(MOD).await;
                     println!("爬MOD结束")
                 });
-
-
                 println!("getting AROUND question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(AROUND) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(AROUND).await;
                     println!("爬AROUND结束")
                 });
-
-
                 println!("getting VOID question");
-                std::thread::spawn(|| {
-                    if let Err(err) = get(VOID) {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    get(VOID).await;
                     println!("爬VOID结束")
                 });
             }
             "water" => {
                 println!("getting water");
-                std::thread::spawn(|| {
-                    if let Err(err) = water() {
-                        eprintln!("{}", err);
-                    }
+                tokio::spawn(async {
+                    water().await;
                     println!("爬water结束")
                 });
             }
-            "on" => unsafe {
-                OPEN = true;
+            "on" => {
+                OPEN.swap(true, Ordering::Relaxed);
                 println!("enabled open.");
             }
-            "off" => unsafe {
-                OPEN = false;
+            "off" => {
+                OPEN.swap(false, Ordering::Relaxed);
                 println!("disabled open.");
             }
             "stop" => break,
             _ => {}
         }
     }
+    Ok(())
 }
