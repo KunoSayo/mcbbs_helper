@@ -204,6 +204,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 OPEN.swap(false, Ordering::Relaxed);
                 println!("disabled open.");
             }
+            "mod" => {
+                if let Err(e) = webbrowser::open("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=45&filter=sortid&sortid=1") {
+                    eprintln!("{}", e);
+                }
+            }
             "stop" => break,
             _ => {}
         }
