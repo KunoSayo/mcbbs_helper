@@ -73,7 +73,7 @@ async fn get(url: &str) {
                 eprintln!("{}", e);
             }
         }
-        tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
+        tokio::time::delay_for(Duration::from_secs_f32(3.0)).await;
     }
 }
 
@@ -112,6 +112,7 @@ async fn water() {
             }
             Err(e) => {
                 eprintln!("get water failed: {}", e)
+                tokio::time::delay_for(Duration::from_secs_f32(15.0)).await;
             }
         }
         tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
