@@ -111,7 +111,7 @@ async fn water() {
                 }
             }
             Err(e) => {
-                eprintln!("get water failed: {}", e)
+                eprintln!("get water failed: {}", e);
                 tokio::time::delay_for(Duration::from_secs_f32(15.0)).await;
             }
         }
