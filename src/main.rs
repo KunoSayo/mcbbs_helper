@@ -32,9 +32,8 @@ async fn get(url: &str) {
             .header("Cookie", &cookie)
             .timeout(Duration::from_secs(5)).send().await {
             Ok(resp) => {
-                match resp.text().await.map(|c| c.lines().map(|l| l.to_string()).collect()) {
+                match resp.text().await.map(|c| c.lines().map(|l| l.to_string()).collect::<Vec<String>>()) {
                     Ok(lines) => {
-                        let lines: Vec<String> = lines;
                         let mut i = 0;
                         let mut found = false;
                         while i < lines.len() {
