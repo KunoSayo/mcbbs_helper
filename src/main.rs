@@ -32,41 +32,48 @@ async fn get(url: &str) {
             .header("Cookie", &cookie)
             .timeout(Duration::from_secs(5)).send().await {
             Ok(resp) => {
-                let lines: Vec<String> = resp.text().await.map(|c| c.lines().map(|l| l.to_string()).collect()).unwrap();
-                let mut i = 0;
-                let mut found = false;
-                while i < lines.len() {
-                    let line = &lines[i];
+                match resp.text().await.map(|c| c.lines().map(|l| l.to_string()).collect()) {
+                    Ok(lines) => {
+                        let lines: Vec<String> = lines;
+                        let mut i = 0;
+                        let mut found = false;
+                        while i < lines.len() {
+                            let line = &lines[i];
 
-                    let matcher = pattern.captures(&*line);
-                    if let Some(matcher) = matcher {
-                        for j in 0..6 {
-                            if lines[i + j].contains("金粒") {
-                                if !list.contains(line) {
-                                    if !found {
-                                        println!();
-                                        found = true;
-                                    }
-                                    list.push_back(line.clone());
-                                    while list.len() > 70 {
-                                        list.pop_front();
-                                    }
-                                    if OPEN.load(Ordering::Relaxed) {
-                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
-                                            eprintln!("open failed {}", e);
+                            let matcher = pattern.captures(&*line);
+                            if let Some(matcher) = matcher {
+                                for j in 0..6 {
+                                    if lines[i + j].contains("金粒") {
+                                        if !list.contains(line) {
+                                            if !found {
+                                                println!();
+                                                found = true;
+                                            }
+                                            list.push_back(line.clone());
+                                            while list.len() > 70 {
+                                                list.pop_front();
+                                            }
+                                            if OPEN.load(Ordering::Relaxed) {
+                                                if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
+                                                    eprintln!("open failed {}", e);
+                                                }
+                                            }
+                                            let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
+                                            println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
+                                                .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
                                         }
+                                        break;
                                     }
-                                    let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
-                                    println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
-                                        .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
                                 }
-                                break;
                             }
+
+
+                            i += 1;
                         }
                     }
-
-
-                    i += 1;
+                    Err(e) => {
+                        eprintln!("{}", e);
+                    }
                 }
             }
             Err(e) => {
