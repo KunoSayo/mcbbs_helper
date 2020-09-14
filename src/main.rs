@@ -7,7 +7,7 @@ use std::io::{Read, stdin};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
-use chrono::{DateTime, Local};
+use chrono::{Datelike, DateTime, Local};
 use regex::Regex;
 use tokio::time::Duration;
 
@@ -19,7 +19,16 @@ const VOID: &str = "https://www.mcbbs.net/forum-peqanda-1.html?mobile=no";
 
 static OPEN: AtomicBool = AtomicBool::new(false);
 
-async fn get(url: &str) {
+
+async fn get_content(url: &str, cookie: &String) -> Result<Vec<String>, reqwest::Error> {
+    let content = reqwest::Client::new().get(url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
+        .header("Cookie", cookie)
+        .timeout(Duration::from_secs(5)).send().await?.text().await?;
+    Ok(content.lines().map(&str::to_string).collect())
+}
+
+async fn run_get_task(url: &str) {
     let pattern: Regex = Regex::new(".*(?P<url>thread-[0-9]+-[0-9]+-[0-9]+\\.html).*class=\"s xst\">(?P<title>.*)\n*</a>\n*").unwrap();
 
     let mut cookie_file = File::open("cookie.cookie").unwrap();
@@ -27,90 +36,75 @@ async fn get(url: &str) {
     cookie_file.read_to_string(&mut cookie).unwrap();
     let mut list = LinkedList::new();
     loop {
-        match reqwest::Client::new().get(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
-            .header("Cookie", &cookie)
-            .timeout(Duration::from_secs(5)).send().await {
-            Ok(resp) => {
-                match resp.text().await.map(|c| c.lines().map(|l| l.to_string()).collect::<Vec<String>>()) {
-                    Ok(lines) => {
-                        let mut i = 0;
-                        let mut found = false;
-                        while i < lines.len() {
-                            let line = &lines[i];
+        match get_content(url, &cookie).await {
+            Ok(lines) => {
+                let mut i = 0;
+                let mut found = false;
+                while i < lines.len() {
+                    let line = &lines[i];
 
-                            let matcher = pattern.captures(&*line);
-                            if let Some(matcher) = matcher {
-                                for j in 0..6 {
-                                    if lines[i + j].contains("金粒") {
-                                        if !list.contains(line) {
-                                            if !found {
-                                                println!();
-                                                found = true;
-                                            }
-                                            list.push_back(line.clone());
-                                            while list.len() > 70 {
-                                                list.pop_front();
-                                            }
-                                            if OPEN.load(Ordering::Relaxed) {
-                                                if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
-                                                    eprintln!("open failed {}", e);
-                                                }
-                                            }
-                                            let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
-                                            println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
-                                                .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
-                                        }
-                                        break;
+                    let matcher = pattern.captures(&*line);
+                    if let Some(matcher) = matcher {
+                        for j in 0..6 {
+                            if lines[i + j].contains("金粒") {
+                                if !list.contains(line) {
+                                    if !found {
+                                        println!();
+                                        found = true;
                                     }
+                                    list.push_back(line.clone());
+                                    while list.len() > 70 {
+                                        list.pop_front();
+                                    }
+                                    if OPEN.load(Ordering::Relaxed) {
+                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
+                                            eprintln!("open failed {}", e);
+                                        }
+                                    }
+                                    let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
+                                    println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
+                                        .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
                                 }
+                                break;
                             }
-
-
-                            i += 1;
                         }
                     }
-                    Err(e) => {
-                        eprintln!("{}", e);
-                    }
+                    i += 1;
                 }
             }
             Err(e) => {
                 eprintln!("{}", e);
+                tokio::time::delay_for(Duration::from_secs_f32(3.0)).await;
             }
         }
         tokio::time::delay_for(Duration::from_secs_f32(3.0)).await;
     }
 }
 
+
 async fn water() {
     let pattern: Regex = Regex::new(r#".*viewthread.*tid=(?P<tid>\d+).*"s xst">(?P<title>.*)</a>.*"#).unwrap();
     let mut list = LinkedList::new();
     loop {
-        match reqwest::Client::new().get("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
-            .timeout(Duration::from_secs(5)).send().await {
-            Ok(resp) => {
-                if let Ok(content) = resp.text().await {
-                    let lines: Vec<&str> = content.lines().collect();
-                    for line in lines {
-                        let matcher = pattern.captures(&*line);
-                        if let Some(matcher) = matcher {
-                            let tid = &matcher["tid"];
-                            if tid.parse().unwrap_or(9000000) > 1000000 {
-                                if !list.contains(&tid.to_string()) {
-                                    list.push_back(tid.to_string());
-                                    while list.len() > 70 {
-                                        list.pop_front();
-                                    }
-                                    if OPEN.load(Ordering::Relaxed) {
-                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
-                                            eprintln!("open failed {}", e);
-                                        }
-                                    }
-                                    println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
-                                        .to_string(), &matcher["tid"], &matcher["title"]);
+        match get_content("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no", &"".to_string()).await {
+            Ok(lines) => {
+                for line in lines {
+                    let matcher = pattern.captures(&*line);
+                    if let Some(matcher) = matcher {
+                        let tid = &matcher["tid"];
+                        if tid.parse().unwrap_or(9000000) > 1000000 {
+                            if !list.contains(&tid.to_string()) {
+                                list.push_back(tid.to_string());
+                                while list.len() > 70 {
+                                    list.pop_front();
                                 }
+                                if OPEN.load(Ordering::Relaxed) {
+                                    if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
+                                        eprintln!("open failed {}", e);
+                                    }
+                                }
+                                println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
+                                    .to_string(), &matcher["tid"], &matcher["title"]);
                             }
                         }
                     }
@@ -136,63 +130,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "1" => {
                 println!("getting VANILLA question");
                 tokio::spawn(async {
-                    get(VANILLA).await;
+                    run_get_task(VANILLA).await;
                     println!("爬vanilla结束")
                 });
             }
             "2" => {
                 println!("getting MU question");
                 tokio::spawn(async {
-                    get(MU).await;
+                    run_get_task(MU).await;
                     println!("爬MU结束")
                 });
             }
             "3" => {
                 println!("getting MOD question");
                 tokio::spawn(async {
-                    get(MOD).await;
+                    run_get_task(MOD).await;
                     println!("爬MOD结束")
                 });
             }
             "4" => {
                 println!("getting AROUND question");
                 tokio::spawn(async {
-                    get(AROUND).await;
+                    run_get_task(AROUND).await;
                     println!("爬AROUND结束")
                 });
             }
             "5" => {
                 println!("getting VOID question");
                 tokio::spawn(async {
-                    get(VOID).await;
+                    run_get_task(VOID).await;
                     println!("爬VOID结束")
                 });
             }
             "all" => {
                 println!("getting VANILLA question");
                 tokio::spawn(async {
-                    get(VANILLA).await;
+                    run_get_task(VANILLA).await;
                     println!("爬vanilla结束")
                 });
 
                 println!("getting MU question");
                 tokio::spawn(async {
-                    get(MU).await;
+                    run_get_task(MU).await;
                     println!("爬MU结束")
                 });
                 println!("getting MOD question");
                 tokio::spawn(async {
-                    get(MOD).await;
+                    run_get_task(MOD).await;
                     println!("爬MOD结束")
                 });
                 println!("getting AROUND question");
                 tokio::spawn(async {
-                    get(AROUND).await;
+                    run_get_task(AROUND).await;
                     println!("爬AROUND结束")
                 });
                 println!("getting VOID question");
                 tokio::spawn(async {
-                    get(VOID).await;
+                    run_get_task(VOID).await;
                     println!("爬VOID结束")
                 });
             }
@@ -202,6 +196,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     water().await;
                     println!("爬water结束")
                 });
+            }
+            "age" => {
+                let date_time = DateTime::<Local>::from(SystemTime::now());
+                let start = date_time.with_year(2019).unwrap().with_month(5).unwrap();
+                println!("{}个月", (date_time.year() - start.year()) as u32 * 12 + date_time.month() - start.month());
             }
             "on" => {
                 OPEN.swap(true, Ordering::Relaxed);
