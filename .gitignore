@@ -3,3 +3,8 @@
 *.iml
 cookie
 *.cookie
+
+
+src/admin.rs
+admin.*
+*admin*

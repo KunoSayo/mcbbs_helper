@@ -1,6 +1,5 @@
 //https://doc.rust-lang.org/book/
 
-
 use std::collections::LinkedList;
 use std::fs::File;
 use std::io::{Read, stdin};
@@ -10,6 +9,9 @@ use std::time::SystemTime;
 use chrono::{Datelike, DateTime, Local};
 use regex::Regex;
 use tokio::time::Duration;
+
+#[cfg(feature = "admin")]
+mod admin;
 
 const VANILLA: &str = "https://www.mcbbs.net/forum-qanda-1.html?mobile=no";
 const MU: &str = "https://www.mcbbs.net/forum-multiqanda-1.html?mobile=no";
@@ -24,7 +26,7 @@ async fn get_content(url: &str, cookie: &String) -> Result<Vec<String>, reqwest:
     let content = reqwest::Client::new().get(url)
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
         .header("Cookie", cookie)
-        .timeout(Duration::from_secs(5)).send().await?.text().await?;
+        .timeout(Duration::from_secs(10)).send().await?.text().await?;
     Ok(content.lines().map(&str::to_string).collect())
 }
 
@@ -168,7 +170,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     run_get_task(VANILLA).await;
                     println!("爬vanilla结束")
                 });
-
                 println!("getting MU question");
                 tokio::spawn(async {
                     run_get_task(MU).await;
@@ -214,6 +215,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(e) = webbrowser::open("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=45&filter=sortid&sortid=1") {
                     eprintln!("{}", e);
                 }
+            }
+            #[cfg(feature = "admin")]
+            "report" => {
+                println!("getting report");
+                tokio::spawn(async {
+                    admin::get_report().await;
+                    println!("end getting report");
+                });
             }
             "stop" => break,
             _ => {}
