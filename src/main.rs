@@ -224,6 +224,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("end getting report");
                 });
             }
+            #[cfg(feature = "admin")]
+            "clean" => {
+                admin::clean();
+            }
             "stop" => break,
             _ => {}
         }
