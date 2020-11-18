@@ -23,11 +23,11 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 
 
 async fn get_content(url: &str, cookie: &String) -> Result<Vec<String>, reqwest::Error> {
-    let content = reqwest::Client::new().get(url)
+    let response = reqwest::Client::new().get(url)
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
         .header("Cookie", cookie)
-        .timeout(Duration::from_secs(10)).send().await?.text().await?;
-    Ok(content.lines().map(&str::to_string).collect())
+        .timeout(Duration::from_secs(10)).send().await?;
+    Ok(response.error_for_status()?.text().await?.lines().map(&str::to_string).collect())
 }
 
 async fn run_get_task(url: &str) {
