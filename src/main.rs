@@ -216,20 +216,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("{}", e);
                 }
             }
-            #[cfg(feature = "admin")]
-            "report" => {
-                println!("getting report");
-                tokio::spawn(async {
-                    admin::get_report().await;
-                    println!("end getting report");
-                });
-            }
-            #[cfg(feature = "admin")]
-            "clean" => {
-                admin::clean();
-            }
             "stop" => break,
-            _ => {}
+            _ => {
+                #[cfg(feature = "admin")]
+                    admin::process(input);
+            }
         }
     }
     Ok(())
