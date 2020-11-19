@@ -216,6 +216,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("{}", e);
                 }
             }
+            "code" => {
+                println!("[font=微软雅黑][color=White][table=98%,Black]
+[tr=#2F2F2F][td]
+[p=15, 0, left]
+[/p]
+[/td][/tr][/table][/color][/font]")
+            }
             "stop" => break,
             _ => {
                 #[cfg(feature = "admin")]
