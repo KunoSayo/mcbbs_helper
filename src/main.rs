@@ -27,7 +27,15 @@ async fn get_content(url: &str, cookie: &String) -> Result<Vec<String>, reqwest:
         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
         .header("Cookie", cookie)
         .timeout(Duration::from_secs(10)).send().await?;
-    Ok(response.error_for_status()?.text().await?.lines().map(&str::to_string).collect())
+    match response.error_for_status() {
+        Ok(r) => {
+            Ok(r.text().await?.lines().map(&str::to_string).collect())
+        }
+        Err(e) => {
+            tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
+            Err(e)
+        }
+    }
 }
 
 async fn run_get_task(url: &str) {
