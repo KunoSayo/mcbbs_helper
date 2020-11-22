@@ -25,15 +25,15 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 
 
 /// What THE ** CODE IT IS? ARC ARC ARC
-struct McbbsThreadData<'a> {
-    mcbbs: Arc<McbbsData<'a>>,
+struct McbbsThreadData {
+    mcbbs: Arc<McbbsData>,
     tid: u32,
     cd: u64,
     running: AtomicBool,
     last_replay: AtomicU64,
 }
 
-impl<'a> McbbsThreadData<'a> {
+impl McbbsThreadData {
     async fn run(&self) {
         let pattern: Regex = Regex::new(r##".*<span class="xi1">(?P<num>\d*)</span>.*"##).unwrap();
 
@@ -75,7 +75,7 @@ impl<'a> McbbsThreadData<'a> {
         }
     }
 
-    fn new(mcbbs: Arc<McbbsData<'a>>, tid: u32, cd: u64) -> Self {
+    fn new(mcbbs: Arc<McbbsData>, tid: u32, cd: u64) -> Self {
         Self {
             mcbbs,
             tid,
@@ -88,7 +88,7 @@ impl<'a> McbbsThreadData<'a> {
 
 
 /// What THE ** CODE IT IS? MUTEX MUTEX MUTEX ARC ARC ARC
-pub struct McbbsData<'a> {
+pub struct McbbsData {
     questions: Mutex<LinkedList<String>>,
     water: Mutex<LinkedList<String>>,
     question_cd: AtomicU64,
@@ -96,11 +96,11 @@ pub struct McbbsData<'a> {
     #[cfg(feature = "admin")]
     admin_cd: AtomicU64,
     request_lock: Mutex<()>,
-    listening_threads: Mutex<HashMap<u32, Arc<McbbsThreadData<'a>>>>,
+    listening_threads: Mutex<HashMap<u32, Arc<McbbsThreadData>>>,
     cookie: String,
 }
 
-impl<'a> Default for McbbsData<'a> {
+impl Default for McbbsData {
     fn default() -> Self {
         let mut cookie = String::new();
         match File::open("cookie.cookie") {
@@ -127,7 +127,7 @@ impl<'a> Default for McbbsData<'a> {
     }
 }
 
-impl<'a> McbbsData<'a> {
+impl McbbsData {
     async fn get_content(&self, url: &str) -> Result<Vec<String>, reqwest::Error> {
         let _lock = self.request_lock.lock().await;
         let response = reqwest::Client::new().get(url)
