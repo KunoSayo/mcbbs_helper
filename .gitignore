@@ -8,3 +8,6 @@ cookie
 src/admin.rs
 admin.*
 *admin*
+
+
+*.log
