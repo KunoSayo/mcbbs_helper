@@ -3,11 +3,13 @@
 use std::collections::LinkedList;
 use std::fs::File;
 use std::io::{Read, stdin};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::SystemTime;
 
-use chrono::{Datelike, DateTime, Local};
+use chrono::{DateTime, Local};
 use regex::Regex;
+use tokio::sync::Mutex;
 use tokio::time::Duration;
 
 #[cfg(feature = "admin")]
@@ -21,6 +23,29 @@ const VOID: &str = "https://www.mcbbs.net/forum-peqanda-1.html?mobile=no";
 
 static OPEN: AtomicBool = AtomicBool::new(false);
 
+
+#[derive(Debug)]
+pub struct McbbsData {
+    questions: Mutex<LinkedList<String>>,
+    water: Mutex<LinkedList<String>>,
+    question_cd: AtomicU64,
+    water_cd: AtomicU64,
+    #[cfg(feature = "admin")]
+    admin_cd: AtomicU64,
+}
+
+impl Default for McbbsData {
+    fn default() -> Self {
+        Self {
+            questions: Default::default(),
+            water: Default::default(),
+            question_cd: AtomicU64::new(5_000),
+            water_cd: AtomicU64::new(15_000),
+            #[cfg(feature = "admin")]
+            admin_cd: AtomicU64::new(15_000),
+        }
+    }
+}
 
 async fn get_content(url: &str, cookie: &String) -> Result<Vec<String>, reqwest::Error> {
     let response = reqwest::Client::new().get(url)
@@ -38,185 +63,206 @@ async fn get_content(url: &str, cookie: &String) -> Result<Vec<String>, reqwest:
     }
 }
 
-async fn run_get_task(url: &str) {
-    let pattern: Regex = Regex::new(".*(?P<url>thread-[0-9]+-[0-9]+-[0-9]+\\.html).*class=\"s xst\">(?P<title>.*)\n*</a>\n*").unwrap();
+impl McbbsData {
+    async fn run_get_task(&self, url: &str) {
+        let pattern: Regex = Regex::new(".*(?P<url>thread-[0-9]+-[0-9]+-[0-9]+\\.html).*class=\"s xst\">(?P<title>.*)\n*</a>\n*").unwrap();
 
-    let mut cookie_file = File::open("cookie.cookie").unwrap();
-    let mut cookie = String::new();
-    cookie_file.read_to_string(&mut cookie).unwrap();
-    let mut list = LinkedList::new();
-    loop {
-        match get_content(url, &cookie).await {
-            Ok(lines) => {
-                let mut i = 0;
-                let mut found = false;
-                while i < lines.len() {
-                    let line = &lines[i];
+        let mut cookie_file = File::open("cookie.cookie").unwrap();
+        let mut cookie = String::new();
+        cookie_file.read_to_string(&mut cookie).unwrap();
+        loop {
+            match get_content(url, &cookie).await {
+                Ok(lines) => {
+                    let mut list = self.questions.lock().await;
+                    let mut i = 0;
+                    let mut found = false;
+                    while i < lines.len() {
+                        let line = &lines[i];
 
-                    let matcher = pattern.captures(&*line);
-                    if let Some(matcher) = matcher {
-                        for j in 0..6 {
-                            if lines[i + j].contains("金粒") {
-                                if !list.contains(line) {
-                                    if !found {
-                                        println!();
-                                        found = true;
+                        let matcher = pattern.captures(&*line);
+                        if let Some(matcher) = matcher {
+                            for j in 0..6 {
+                                if lines[i + j].contains("金粒") {
+                                    if !list.contains(line) {
+                                        if !found {
+                                            println!();
+                                            found = true;
+                                        }
+                                        list.push_back(line.clone());
+                                        while list.len() > 249 {
+                                            list.pop_front();
+                                        }
+                                        if OPEN.load(Ordering::Relaxed) {
+                                            if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
+                                                eprintln!("open failed {}", e);
+                                            }
+                                        }
+                                        let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
+                                        println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
+                                            .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
                                     }
-                                    list.push_back(line.clone());
+                                    break;
+                                }
+                            }
+                        }
+                        i += 1;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{}", e);
+                    tokio::time::delay_for(Duration::from_millis(self.question_cd.load(Ordering::Relaxed) + 3000)).await;
+                }
+            }
+            tokio::time::delay_for(Duration::from_millis(self.question_cd.load(Ordering::Relaxed))).await;
+        }
+    }
+
+
+    async fn water(&self) {
+        let pattern: Regex = Regex::new(r#".*viewthread.*tid=(?P<tid>\d+).*"s xst">(?P<title>.*)</a>.*"#).unwrap();
+        loop {
+            match get_content("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no", &"".to_string()).await {
+                Ok(lines) => {
+                    let mut list = self.water.lock().await;
+                    for line in lines {
+                        let matcher = pattern.captures(&*line);
+                        if let Some(matcher) = matcher {
+                            let tid = &matcher["tid"];
+                            if tid.parse().unwrap_or(9000000) > 1000000 {
+                                if !list.contains(&tid.to_string()) {
+                                    list.push_back(tid.to_string());
                                     while list.len() > 70 {
                                         list.pop_front();
                                     }
                                     if OPEN.load(Ordering::Relaxed) {
-                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
+                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
                                             eprintln!("open failed {}", e);
                                         }
                                     }
-                                    let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
-                                    println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
-                                        .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
+                                    println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
+                                        .to_string(), &matcher["tid"], &matcher["title"]);
                                 }
-                                break;
                             }
                         }
                     }
-                    i += 1;
+                }
+                Err(e) => {
+                    eprintln!("get water failed: {}", e);
+                    tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed) + 10000)).await;
                 }
             }
-            Err(e) => {
-                eprintln!("{}", e);
-                tokio::time::delay_for(Duration::from_secs_f32(3.0)).await;
-            }
+            tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed))).await;
         }
-        tokio::time::delay_for(Duration::from_secs_f32(3.0)).await;
     }
-}
 
-
-async fn water() {
-    let pattern: Regex = Regex::new(r#".*viewthread.*tid=(?P<tid>\d+).*"s xst">(?P<title>.*)</a>.*"#).unwrap();
-    let mut list = LinkedList::new();
-    loop {
-        match get_content("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no", &"".to_string()).await {
-            Ok(lines) => {
-                for line in lines {
-                    let matcher = pattern.captures(&*line);
-                    if let Some(matcher) = matcher {
-                        let tid = &matcher["tid"];
-                        if tid.parse().unwrap_or(9000000) > 1000000 {
-                            if !list.contains(&tid.to_string()) {
-                                list.push_back(tid.to_string());
-                                while list.len() > 70 {
-                                    list.pop_front();
-                                }
-                                if OPEN.load(Ordering::Relaxed) {
-                                    if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
-                                        eprintln!("open failed {}", e);
-                                    }
-                                }
-                                println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
-                                    .to_string(), &matcher["tid"], &matcher["title"]);
-                            }
-                        }
-                    }
-                }
+    fn info(&self) {
+        let w = self.water_cd.load(Ordering::Relaxed);
+        let q = self.question_cd.load(Ordering::Relaxed);
+        println!("water_cd_ms: {}, question_cd_ms: {}", w, q);
+        #[cfg(feature = "admin")]
+            {
+                let a = self.admin_cd.load(Ordering::Relaxed);
+                println!("admin_cd_ms: {}", a);
             }
-            Err(e) => {
-                eprintln!("get water failed: {}", e);
-                tokio::time::delay_for(Duration::from_secs_f32(15.0)).await;
-            }
-        }
-        tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mcbbs = Arc::new(McbbsData::default());
     println!("1 2 3 4 5 爬 单 多 模 周 虚");
     loop {
         let mut input = String::new();
         stdin().read_line(&mut input).expect("read input failed");
-        let input = input.trim();
-        match input {
+        let raw_input = input.trim();
+        let input: Vec<&str> = raw_input.splitn(2, " ").collect();
+        match input[0] {
             "1" => {
+                let mcbbs = mcbbs.clone();
                 println!("getting VANILLA question");
-                tokio::spawn(async {
-                    run_get_task(VANILLA).await;
+                tokio::spawn(async move {
+                    mcbbs.run_get_task(VANILLA).await;
                     println!("爬vanilla结束")
                 });
             }
             "2" => {
+                let mcbbs = mcbbs.clone();
                 println!("getting MU question");
-                tokio::spawn(async {
-                    run_get_task(MU).await;
+                tokio::spawn(async move {
+                    mcbbs.run_get_task(MU).await;
                     println!("爬MU结束")
                 });
             }
             "3" => {
+                let mcbbs = mcbbs.clone();
                 println!("getting MOD question");
-                tokio::spawn(async {
-                    run_get_task(MOD).await;
+                tokio::spawn(async move {
+                    mcbbs.run_get_task(MOD).await;
                     println!("爬MOD结束")
                 });
             }
             "4" => {
+                let mcbbs = mcbbs.clone();
                 println!("getting AROUND question");
-                tokio::spawn(async {
-                    run_get_task(AROUND).await;
+                tokio::spawn(async move {
+                    mcbbs.run_get_task(AROUND).await;
                     println!("爬AROUND结束")
                 });
             }
             "5" => {
+                let mcbbs = mcbbs.clone();
                 println!("getting VOID question");
-                tokio::spawn(async {
-                    run_get_task(VOID).await;
+                tokio::spawn(async move {
+                    mcbbs.run_get_task(VOID).await;
                     println!("爬VOID结束")
                 });
             }
             "all" => {
+                let mcbbs_arc = mcbbs.clone();
                 println!("getting VANILLA question");
-                tokio::spawn(async {
-                    run_get_task(VANILLA).await;
+                tokio::spawn(async move {
+                    mcbbs_arc.run_get_task(VANILLA).await;
                     println!("爬vanilla结束")
                 });
+                let mcbbs_arc = mcbbs.clone();
                 println!("getting MU question");
-                tokio::spawn(async {
-                    run_get_task(MU).await;
+                tokio::spawn(async move {
+                    mcbbs_arc.run_get_task(MU).await;
                     println!("爬MU结束")
                 });
+                let mcbbs_arc = mcbbs.clone();
                 println!("getting MOD question");
-                tokio::spawn(async {
-                    run_get_task(MOD).await;
+                tokio::spawn(async move {
+                    mcbbs_arc.run_get_task(MOD).await;
                     println!("爬MOD结束")
                 });
+                let mcbbs_arc = mcbbs.clone();
                 println!("getting AROUND question");
-                tokio::spawn(async {
-                    run_get_task(AROUND).await;
+                tokio::spawn(async move {
+                    mcbbs_arc.run_get_task(AROUND).await;
                     println!("爬AROUND结束")
                 });
+                let mcbbs_arc = mcbbs.clone();
                 println!("getting VOID question");
-                tokio::spawn(async {
-                    run_get_task(VOID).await;
+                tokio::spawn(async move {
+                    mcbbs_arc.run_get_task(VOID).await;
                     println!("爬VOID结束")
                 });
             }
             "water" => {
+                let mcbbs = mcbbs.clone();
                 println!("getting water");
-                tokio::spawn(async {
-                    water().await;
+                tokio::spawn(async move {
+                    mcbbs.water().await;
                     println!("爬water结束")
                 });
             }
-            "age" => {
-                let date_time = DateTime::<Local>::from(SystemTime::now());
-                let start = date_time.with_year(2019).unwrap().with_month(5).unwrap();
-                println!("{}个月", (date_time.year() - start.year()) as u32 * 12 + date_time.month() - start.month());
-            }
             "on" => {
-                OPEN.swap(true, Ordering::Relaxed);
+                OPEN.swap(true, Ordering::AcqRel);
                 println!("enabled open.");
             }
             "off" => {
-                OPEN.swap(false, Ordering::Relaxed);
+                OPEN.swap(false, Ordering::AcqRel);
                 println!("disabled open.");
             }
             "mod" => {
@@ -231,10 +277,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 [/p]
 [/td][/tr][/table][/color][/font]")
             }
+            "info" => {
+                mcbbs.info();
+            }
+            "cd" => {
+                let input = input[1].splitn(2, " ").collect::<Vec<&str>>();
+                if input.len() == 1 {
+                    println!("Unknown cd time.");
+                } else if let Ok(cd) = input[1].parse() {
+                    if cd < 1000 {
+                        println!("cd is too short for {}ms", cd);
+                    } else {
+                        match input[0] {
+                            "water" => mcbbs.water_cd.store(cd, Ordering::Relaxed),
+                            "question" => mcbbs.question_cd.store(cd, Ordering::Relaxed),
+                            #[cfg(feature = "admin")]
+                            "admin" => mcbbs.admin_cd.store(cd, Ordering::Relaxed),
+                            _ => {
+                                println!("Unknown cd source: {}", input[0])
+                            }
+                        }
+                    }
+                } else {
+                    println!("cd is number.");
+                }
+            }
             "stop" => break,
             _ => {
                 #[cfg(feature = "admin")]
-                    admin::process(input);
+                    admin::process(mcbbs.clone(), raw_input);
             }
         }
     }
