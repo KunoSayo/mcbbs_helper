@@ -1,6 +1,6 @@
 //https://doc.rust-lang.org/book/
 
-use std::collections::LinkedList;
+use std::collections::{HashMap, LinkedList};
 use std::fs::File;
 use std::io::{Read, stdin};
 use std::sync::Arc;
@@ -24,18 +24,95 @@ const VOID: &str = "https://www.mcbbs.net/forum-peqanda-1.html?mobile=no";
 static OPEN: AtomicBool = AtomicBool::new(false);
 
 
-#[derive(Debug)]
-pub struct McbbsData {
+/// What THE ** CODE IT IS? ARC ARC ARC
+struct McbbsThreadData<'a> {
+    mcbbs: Arc<McbbsData<'a>>,
+    tid: u32,
+    cd: u64,
+    running: AtomicBool,
+    last_replay: AtomicU64,
+}
+
+impl<'a> McbbsThreadData<'a> {
+    async fn run(&self) {
+        let pattern: Regex = Regex::new(r##".*<span class="xi1">(?P<num>\d*)</span>.*"##).unwrap();
+
+        while self.running.load(Ordering::SeqCst) {
+            match self.mcbbs.get_content(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", self.tid)).await {
+                Ok(lines) => {
+                    let mut i = 0;
+                    'while_loop: while i < lines.len() {
+                        if lines[i].contains(r#"<span class="xg1">回复"#) {
+                            for j in 0..5 {
+                                if let Some(matcher) = pattern.captures(&*lines[i + j]) {
+                                    let count = matcher["num"].parse().unwrap();
+                                    let last = self.last_replay.load(Ordering::SeqCst);
+                                    if count > last {
+                                        println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复增加了[{}->{}]"#,
+                                                 DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
+                                                 self.tid, last, count);
+                                        self.last_replay.store(count, Ordering::SeqCst);
+                                    } else if count < last {
+                                        println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复减少了[{}->{}]"#,
+                                                 DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
+                                                 self.tid, last, count);
+                                        self.last_replay.store(count, Ordering::SeqCst);
+                                    }
+                                    break 'while_loop;
+                                }
+                            }
+                        }
+
+                        i += 1;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{}", e);
+                    tokio::time::delay_for(Duration::from_millis(self.cd + 3000)).await;
+                }
+            }
+            tokio::time::delay_for(Duration::from_millis(self.cd)).await;
+        }
+    }
+
+    fn new(mcbbs: Arc<McbbsData<'a>>, tid: u32, cd: u64) -> Self {
+        Self {
+            mcbbs,
+            tid,
+            cd,
+            running: AtomicBool::new(true),
+            last_replay: Default::default(),
+        }
+    }
+}
+
+
+/// What THE ** CODE IT IS? MUTEX MUTEX MUTEX ARC ARC ARC
+pub struct McbbsData<'a> {
     questions: Mutex<LinkedList<String>>,
     water: Mutex<LinkedList<String>>,
     question_cd: AtomicU64,
     water_cd: AtomicU64,
     #[cfg(feature = "admin")]
     admin_cd: AtomicU64,
+    request_lock: Mutex<()>,
+    listening_threads: Mutex<HashMap<u32, Arc<McbbsThreadData<'a>>>>,
+    cookie: String,
 }
 
-impl Default for McbbsData {
+impl<'a> Default for McbbsData<'a> {
     fn default() -> Self {
+        let mut cookie = String::new();
+        match File::open("cookie.cookie") {
+            Ok(mut cookie_file) => {
+                if let Err(e) = cookie_file.read_to_string(&mut cookie) {
+                    eprintln!("read cookie file failed. {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("read cookie file failed. {}", e);
+            }
+        }
         Self {
             questions: Default::default(),
             water: Default::default(),
@@ -43,35 +120,36 @@ impl Default for McbbsData {
             water_cd: AtomicU64::new(15_000),
             #[cfg(feature = "admin")]
             admin_cd: AtomicU64::new(15_000),
+            request_lock: Default::default(),
+            listening_threads: Default::default(),
+            cookie,
         }
     }
 }
 
-async fn get_content(url: &str, cookie: &String) -> Result<Vec<String>, reqwest::Error> {
-    let response = reqwest::Client::new().get(url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
-        .header("Cookie", cookie)
-        .timeout(Duration::from_secs(10)).send().await?;
-    match response.error_for_status() {
-        Ok(r) => {
-            Ok(r.text().await?.lines().map(&str::to_string).collect())
-        }
-        Err(e) => {
-            tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
-            Err(e)
+impl<'a> McbbsData<'a> {
+    async fn get_content(&self, url: &str) -> Result<Vec<String>, reqwest::Error> {
+        let _lock = self.request_lock.lock().await;
+        let response = reqwest::Client::new().get(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36")
+            .header("Cookie", &self.cookie)
+            .timeout(Duration::from_secs(10)).send().await?;
+        match response.error_for_status() {
+            Ok(r) => {
+                Ok(r.text().await?.lines().map(&str::to_string).collect())
+            }
+            Err(e) => {
+                tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
+                Err(e)
+            }
         }
     }
-}
 
-impl McbbsData {
     async fn run_get_task(&self, url: &str) {
         let pattern: Regex = Regex::new(".*(?P<url>thread-[0-9]+-[0-9]+-[0-9]+\\.html).*class=\"s xst\">(?P<title>.*)\n*</a>\n*").unwrap();
 
-        let mut cookie_file = File::open("cookie.cookie").unwrap();
-        let mut cookie = String::new();
-        cookie_file.read_to_string(&mut cookie).unwrap();
         loop {
-            match get_content(url, &cookie).await {
+            match self.get_content(url).await {
                 Ok(lines) => {
                     let mut list = self.questions.lock().await;
                     let mut i = 0;
@@ -121,7 +199,7 @@ impl McbbsData {
     async fn water(&self) {
         let pattern: Regex = Regex::new(r#".*viewthread.*tid=(?P<tid>\d+).*"s xst">(?P<title>.*)</a>.*"#).unwrap();
         loop {
-            match get_content("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no", &"".to_string()).await {
+            match self.get_content("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no").await {
                 Ok(lines) => {
                     let mut list = self.water.lock().await;
                     for line in lines {
@@ -155,7 +233,7 @@ impl McbbsData {
         }
     }
 
-    fn info(&self) {
+    async fn info(&self) {
         let w = self.water_cd.load(Ordering::Relaxed);
         let q = self.question_cd.load(Ordering::Relaxed);
         println!("water_cd_ms: {}, question_cd_ms: {}", w, q);
@@ -164,6 +242,10 @@ impl McbbsData {
                 let a = self.admin_cd.load(Ordering::Relaxed);
                 println!("admin_cd_ms: {}", a);
             }
+        let map = self.listening_threads.lock().await;
+        for (k, d) in map.iter() {
+            println!("listening tid {} interval {}ms with replay_count: {}", *k, d.cd, d.last_replay.load(Ordering::Relaxed));
+        }
     }
 }
 
@@ -258,11 +340,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
             "on" => {
-                OPEN.swap(true, Ordering::AcqRel);
+                OPEN.store(true, Ordering::SeqCst);
                 println!("enabled open.");
             }
             "off" => {
-                OPEN.swap(false, Ordering::AcqRel);
+                OPEN.store(false, Ordering::SeqCst);
                 println!("disabled open.");
             }
             "mod" => {
@@ -278,7 +360,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 [/td][/tr][/table][/color][/font]")
             }
             "info" => {
-                mcbbs.info();
+                println!("---begin info---");
+
+                mcbbs.info().await;
+                println!("----end info----");
+            }
+            "listen" => {
+                let args = input[1].splitn(2, " ").collect::<Vec<&str>>();
+                if args.len() < 2 {
+                    println!("listen <tid> <cd>")
+                } else {
+                    if let (Ok(tid), Ok(cd)) = (args[0].parse::<u32>(), args[1].parse()) {
+                        if cd < 1000 {
+                            let mcbbs = mcbbs.clone();
+                            tokio::spawn(async move {
+                                let mut map = mcbbs.listening_threads.lock().await;
+                                if let Some(d) = map.remove(&tid) {
+                                    d.running.store(false, Ordering::SeqCst);
+                                    println!("stop listening replay for {}", tid);
+                                } else {
+                                    println!("no task for listening replay for {}", tid);
+                                }
+                            });
+                        } else {
+                            let mcbbs = mcbbs.clone();
+                            tokio::spawn(async move {
+                                let mut map = mcbbs.listening_threads.lock().await;
+                                let data = Arc::new(McbbsThreadData::new(mcbbs.clone(), tid, cd));
+                                if let Some(old) = map.insert(tid, data.clone()) {
+                                    old.running.store(false, Ordering::SeqCst);
+                                }
+                                println!("start listening replay for {}", tid);
+                                std::mem::drop(map);
+                                data.run().await;
+                            });
+                        }
+                    } else {
+                        println!("parse number failed.");
+                    }
+                }
             }
             "cd" => {
                 let input = input[1].splitn(2, " ").collect::<Vec<&str>>();
