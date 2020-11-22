@@ -3,7 +3,7 @@
 use std::collections::{HashMap, LinkedList};
 use std::fs::File;
 use std::io::{Read, stdin};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::SystemTime;
 
@@ -26,7 +26,7 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 
 /// What THE ** CODE IT IS? ARC ARC ARC
 struct McbbsThreadData {
-    mcbbs: Arc<McbbsData>,
+    mcbbs: Weak<McbbsData>,
     tid: u32,
     cd: u64,
     running: AtomicBool,
@@ -38,46 +38,52 @@ impl McbbsThreadData {
         let pattern: Regex = Regex::new(r##".*<span class="xi1">(?P<num>\d*)</span>.*"##).unwrap();
 
         while self.running.load(Ordering::SeqCst) {
-            match self.mcbbs.get_content(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", self.tid)).await {
-                Ok(lines) => {
-                    let mut i = 0;
-                    'while_loop: while i < lines.len() {
-                        if lines[i].contains(r#"<span class="xg1">回复"#) {
-                            for j in 0..5 {
-                                if let Some(matcher) = pattern.captures(&*lines[i + j]) {
-                                    let count = matcher["num"].parse().unwrap();
-                                    let last = self.last_replay.load(Ordering::SeqCst);
-                                    if count > last {
-                                        println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复增加了[{}->{}]"#,
-                                                 DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
-                                                 self.tid, last, count);
-                                        self.last_replay.store(count, Ordering::SeqCst);
-                                    } else if count < last {
-                                        println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复减少了[{}->{}]"#,
-                                                 DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
-                                                 self.tid, last, count);
-                                        self.last_replay.store(count, Ordering::SeqCst);
+            if let Some(mcbbs) = self.mcbbs.upgrade() {
+                match mcbbs.get_content(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", self.tid)).await {
+                    Ok(lines) => {
+                        let mut i = 0;
+                        'while_loop: while i < lines.len() {
+                            if lines[i].contains(r#"<span class="xg1">回复"#) {
+                                for j in 0..5 {
+                                    if let Some(matcher) = pattern.captures(&*lines[i + j]) {
+                                        let count = matcher["num"].parse().unwrap();
+                                        let last = self.last_replay.load(Ordering::SeqCst);
+                                        if count > last {
+                                            println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复增加了[{}->{}]"#,
+                                                     DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
+                                                     self.tid, last, count);
+                                            self.last_replay.store(count, Ordering::SeqCst);
+                                        } else if count < last {
+                                            println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复减少了[{}->{}]"#,
+                                                     DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
+                                                     self.tid, last, count);
+                                            self.last_replay.store(count, Ordering::SeqCst);
+                                        }
+                                        break 'while_loop;
                                     }
-                                    break 'while_loop;
                                 }
                             }
-                        }
 
-                        i += 1;
+                            i += 1;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        tokio::time::delay_for(Duration::from_millis(self.cd + 3000)).await;
                     }
                 }
-                Err(e) => {
-                    eprintln!("{}", e);
-                    tokio::time::delay_for(Duration::from_millis(self.cd + 3000)).await;
-                }
+                tokio::time::delay_for(Duration::from_millis(self.cd)).await;
+            } else {
+                println!("mcbbs destroyed.");
+                break;
             }
-            tokio::time::delay_for(Duration::from_millis(self.cd)).await;
         }
     }
 
     fn new(mcbbs: Arc<McbbsData>, tid: u32, cd: u64) -> Self {
+        let week = Arc::downgrade(&mcbbs);
         Self {
-            mcbbs,
+            mcbbs: week,
             tid,
             cd,
             running: AtomicBool::new(true),
