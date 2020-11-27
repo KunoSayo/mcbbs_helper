@@ -1,5 +1,6 @@
 //https://doc.rust-lang.org/book/
 
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, LinkedList};
 use std::fs::File;
 use std::io::{Read, stdin};
@@ -359,7 +360,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "code" => {
-                println!("[font=微软雅黑][color=White][table=98%,Black]
+                println!("[font=微软雅黑][color=#A9B7C6][table=98%,Black]
 [tr=#2F2F2F][td]
 [p=15, 0, left]
 [/p]
@@ -371,6 +372,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mcbbs.info().await;
                 println!("----end info----");
             }
+
             "listen" => {
                 let args = input[1].splitn(2, " ").collect::<Vec<&str>>();
                 if args.len() < 2 {
