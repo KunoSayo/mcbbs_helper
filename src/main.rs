@@ -371,7 +371,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mcbbs.info().await;
                 println!("----end info----");
             }
-
             "listen" => {
                 let args = input[1].splitn(2, " ").collect::<Vec<&str>>();
                 if args.len() < 2 {
