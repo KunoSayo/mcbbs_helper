@@ -312,7 +312,7 @@ impl McbbsData {
             };
             for i in 0..lines.len() {
                 let line = &lines[i];
-                if line.contains("voter") {
+                if line.contains("voter") && line.contains("ul") {
                     for i in i..lines.len() {
                         let line = &lines[i];
                         if line.contains("</ul>") {
