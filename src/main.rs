@@ -39,25 +39,25 @@ impl McbbsThreadData {
 
         while self.running.load(Ordering::SeqCst) {
             if let Some(mcbbs) = self.mcbbs.upgrade() {
-                match mcbbs.get_content(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", self.tid)).await {
+                match mcbbs.get_content(&format!("https://www.mcbbs.net/thread-{}-1-1.html", self.tid)).await {
                     Ok(lines) => {
                         let mut i = 0;
                         'while_loop: while i < lines.len() {
                             if lines[i].contains(r#"<span class="xg1">回复"#) {
                                 for j in 0..5 {
-                                    if let Some(matcher) = pattern.captures(&*lines[i + j]) {
+                                    if let Some(matcher) = pattern.captures(&lines[i + j]) {
                                         let count = matcher["num"].parse().unwrap();
-                                        let last = self.last_replay.load(Ordering::SeqCst);
+                                        let last = self.last_replay.load(Ordering::Acquire);
                                         if count > last {
                                             println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复增加了[{}->{}]"#,
                                                      DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
                                                      self.tid, last, count);
-                                            self.last_replay.store(count, Ordering::SeqCst);
+                                            self.last_replay.store(count, Ordering::Release);
                                         } else if count < last {
                                             println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复减少了[{}->{}]"#,
                                                      DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
                                                      self.tid, last, count);
-                                            self.last_replay.store(count, Ordering::SeqCst);
+                                            self.last_replay.store(count, Ordering::Release);
                                         }
                                         break 'while_loop;
                                     }
@@ -163,7 +163,7 @@ impl McbbsData {
                     while i < lines.len() {
                         let line = &lines[i];
 
-                        let matcher = pattern.captures(&*line);
+                        let matcher = pattern.captures(&line);
                         if let Some(matcher) = matcher {
                             for j in 0..6 {
                                 if lines[i + j].contains("金粒") {
@@ -176,8 +176,8 @@ impl McbbsData {
                                         while list.len() > 249 {
                                             list.pop_front();
                                         }
-                                        if OPEN.load(Ordering::Relaxed) {
-                                            if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/{}", &matcher["url"])) {
+                                        if OPEN.load(Ordering::Acquire) {
+                                            if let Err(e) = webbrowser::open(&format!("https://www.mcbbs.net/{}", &matcher["url"])) {
                                                 eprintln!("open failed {}", e);
                                             }
                                         }
@@ -209,7 +209,7 @@ impl McbbsData {
                 Ok(lines) => {
                     let mut list = self.water.lock().await;
                     for line in lines {
-                        let matcher = pattern.captures(&*line);
+                        let matcher = pattern.captures(&line);
                         if let Some(matcher) = matcher {
                             let tid = &matcher["tid"];
                             if tid.parse().unwrap_or(9000000) > 1000000 {
@@ -219,7 +219,7 @@ impl McbbsData {
                                         list.pop_front();
                                     }
                                     if OPEN.load(Ordering::Relaxed) {
-                                        if let Err(e) = webbrowser::open(&*format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
+                                        if let Err(e) = webbrowser::open(&format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
                                             eprintln!("open failed {}", e);
                                         }
                                     }
@@ -239,6 +239,97 @@ impl McbbsData {
         }
     }
 
+    async fn get_vote_info(&self, url: &str) {
+        let url = {
+            let lines = match self.get_content(url).await {
+                Ok(line) => line,
+                Err(e) => {
+                    eprintln!("get vote info from thread error: {}", e);
+                    return;
+                }
+            };
+            let pattern = Regex::new(r#".*href="(?P<url>.*?)".*查看投票参与人.*"#).unwrap();
+            let mut url = String::from("https://www.mcbbs.net/");
+            let mut found = false;
+            for line in lines {
+                if let Some(matcher) = pattern.captures(&line) {
+                    url += &matcher["url"].replace("&amp;", "&");
+                    found = true;
+                    break;
+                }
+            };
+            if !found {
+                eprintln!("cannot found vote request url.");
+                return;
+            }
+            url
+        };
+        let lines = match self.get_content(&url).await {
+            Ok(line) => line,
+            Err(e) => {
+                eprintln!("get vote info from first request error: {}", e);
+                return;
+            }
+        };
+        let pattern = Regex::new(r#".*option value="(?P<value>\d+)".*>(?P<text>.*)</option>.*"#).unwrap();
+        let voter_pattern = Regex::new(r#"href="(?P<url>.*)">(?P<name>.*)</a>.*"#).unwrap();
+        let mut values = Vec::with_capacity(30);
+        let mut results = Vec::with_capacity(30);
+        results.push(vec![]);
+        for i in 0..lines.len() {
+            let line = &lines[i];
+            if line.contains(r#"select class="ps""#) {
+                for j in i..i + 35 {
+                    if let Some(matcher) = pattern.captures(&lines[j]) {
+                        values.push((matcher["value"].parse::<u32>().unwrap(), matcher["text"].to_string()));
+                    }
+                }
+            } else if line.contains("voter") && line.contains("ul") {
+                for i in i..lines.len() {
+                    let line = &lines[i];
+                    if line.contains("</ul>") {
+                        break;
+                    }
+                    if let Some(matcher) = voter_pattern.captures(line) {
+                        results[0].push(matcher["name"].to_string());
+                    }
+                }
+                break;
+            }
+        }
+
+        for x in &values[1..] {
+            results.push(vec![]);
+            tokio::time::delay_for(Duration::from_micros(509961)).await;
+
+            let url = format!("{}&polloptionid={}", url, x.0);
+            let lines = match self.get_content(&url).await {
+                Ok(lines) => lines,
+                Err(e) => {
+                    eprintln!("get vote info from {} error: {}", x.0, e);
+                    continue;
+                }
+            };
+            for i in 0..lines.len() {
+                let line = &lines[i];
+                if line.contains("voter") {
+                    for i in i..lines.len() {
+                        let line = &lines[i];
+                        if line.contains("</ul>") {
+                            break;
+                        }
+                        if let Some(matcher) = voter_pattern.captures(line) {
+                            results.last_mut().unwrap().push(matcher["name"].to_string());
+                        }
+                    }
+                }
+            }
+        }
+        for i in 0..results.len() {
+            println!("[{}] {}: {}", i + 1, values[i].1, results[i].join(", "));
+        }
+    }
+
     async fn info(&self) {
         let w = self.water_cd.load(Ordering::Relaxed);
         let q = self.question_cd.load(Ordering::Relaxed);
@@ -252,6 +343,7 @@ impl McbbsData {
         for (k, d) in map.iter() {
             println!("listening tid {} interval {}ms with replay_count: {}", *k, d.cd, d.last_replay.load(Ordering::Relaxed));
         }
+        println!("open enabled: {}", OPEN.load(Ordering::Acquire));
     }
 }
 
@@ -346,11 +438,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
             "on" => {
-                OPEN.store(true, Ordering::SeqCst);
+                OPEN.store(true, Ordering::Release);
                 println!("enabled open.");
             }
             "off" => {
-                OPEN.store(false, Ordering::SeqCst);
+                OPEN.store(false, Ordering::Release);
                 println!("disabled open.");
             }
             "mod" => {
@@ -407,9 +499,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "cd" => {
-                let input = input[1].splitn(2, " ").collect::<Vec<&str>>();
-                if input.len() == 1 {
-                    println!("Unknown cd time.");
+                let input = if input.len() == 1 { vec![] } else { input[1].splitn(2, " ").collect::<Vec<&str>>() };
+                if input.len() <= 1 {
+                    println!("Unknown source/cd time.");
                 } else if let Ok(cd) = input[1].parse() {
                     if cd < 1000 {
                         println!("cd is too short for {}ms", cd);
@@ -426,6 +518,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 } else {
                     println!("cd is number.");
+                }
+            }
+            "vote" => {
+                if input.len() == 2 {
+                    println!("getting vote info from {}.", input[1]);
+                    mcbbs.get_vote_info(input[1]).await;
+                    println!("end getting vote info.");
                 }
             }
             "stop" => break,
