@@ -300,7 +300,7 @@ impl McbbsData {
 
         for x in &values[1..] {
             results.push(vec![]);
-            tokio::time::delay_for(Duration::from_micros(509961)).await;
+            tokio::time::delay_for(Duration::from_micros(169961)).await;
 
             let url = format!("{}&polloptionid={}", url, x.0);
             let lines = match self.get_content(&url).await {
@@ -326,7 +326,11 @@ impl McbbsData {
             }
         }
         for i in 0..results.len() {
-            println!("[{}] {}: {}", i + 1, values[i].1, results[i].join(", "));
+            println!("[{:02}] #{:02} {}: {}",
+                     i + 1,
+                     results[i].len(),
+                     values[i].1,
+                     results[i].join(", "));
         }
     }
 
