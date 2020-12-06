@@ -50,12 +50,12 @@ impl McbbsThreadData {
                                         let last = self.last_replay.load(Ordering::Acquire);
                                         if count > last {
                                             println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复增加了[{}->{}]"#,
-                                                     DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
+                                                     DateTime::<Local>::from(SystemTime::now()).format("%H:%M:%S").to_string(),
                                                      self.tid, last, count);
                                             self.last_replay.store(count, Ordering::Release);
                                         } else if count < last {
                                             println!(r#"{} | https://www.mcbbs.net/thread-{}-1-1.html 的回复减少了[{}->{}]"#,
-                                                     DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S").to_string(),
+                                                     DateTime::<Local>::from(SystemTime::now()).format("%H:%M:%S").to_string(),
                                                      self.tid, last, count);
                                             self.last_replay.store(count, Ordering::Release);
                                         }
@@ -182,7 +182,7 @@ impl McbbsData {
                                             }
                                         }
                                         let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
-                                        println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
+                                        println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).format("%H:%M:%S")
                                             .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
                                     }
                                     break;
@@ -223,7 +223,7 @@ impl McbbsData {
                                             eprintln!("open failed {}", e);
                                         }
                                     }
-                                    println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).time().format("%H:%M:%S")
+                                    println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).format("%H:%M:%S")
                                         .to_string(), &matcher["tid"], &matcher["title"]);
                                 }
                             }
@@ -322,6 +322,7 @@ impl McbbsData {
                             results.last_mut().unwrap().push(matcher["name"].to_string());
                         }
                     }
+                    break;
                 }
             }
         }
