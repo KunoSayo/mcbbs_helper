@@ -532,6 +532,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("end getting vote info.");
                 }
             }
+            "view" => {
+                println!(r#"https://www.mcbbs.net/home.php?mod=space&uid={}&do=index"#
+                         , input.get(1).unwrap_or(&"{UID}"));
+            }
             "stop" => break,
             _ => {
                 #[cfg(feature = "admin")]
