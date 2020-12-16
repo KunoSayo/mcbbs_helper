@@ -239,6 +239,37 @@ impl McbbsData {
         }
     }
 
+    async fn view_water(&self) {
+        let pattern: Regex = Regex::new(r#".*thread-(?P<tid>\d+)-.*"s xst">(?P<title>.*)</a>.*"#).unwrap();
+        let span_pattern: Regex = Regex::new(r#".*<span.*?>(?P<content>.*)</span>.*"#).unwrap();
+
+        match self.get_content("https://www.mcbbs.net/forum-chat-1.html?mobile=no").await {
+            Ok(lines) => {
+                for (idx, line) in lines.iter().enumerate() {
+                    let matcher = pattern.captures(line);
+                    if let Some(matcher) = matcher {
+                        for i in idx..lines.len() {
+                            let line = &lines[i];
+                            if !line.contains("class") {
+                                if let Some(span_matcher) = span_pattern.captures(line) {
+                                    println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}",
+                                             &span_matcher["content"].replace("&nbsp;", " ")
+                                                 .replace("</span>", ""),
+                                             &matcher["tid"], &matcher["title"]);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("view water failed: {}", e);
+                tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed) + 10000)).await;
+            }
+        }
+    }
+
     async fn get_vote_info(&self, url: &str) {
         let url = {
             let lines = match self.get_content(url).await {
@@ -524,6 +555,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     println!("cd is number.");
                 }
+            }
+            "vw" => {
+                let mcbbs = mcbbs.clone();
+                tokio::spawn(async move {
+                    println!("---vw");
+                    mcbbs.view_water().await;
+                    println!("---vw");
+                });
             }
             "vote" => {
                 if input.len() == 2 {
