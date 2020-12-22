@@ -250,7 +250,7 @@ impl McbbsData {
                     if let Some(matcher) = matcher {
                         for i in idx..lines.len() {
                             let line = &lines[i];
-                            if !line.contains("class") {
+                            if !line.contains("tps") {
                                 if let Some(span_matcher) = span_pattern.captures(line) {
                                     println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}",
                                              &span_matcher["content"].replace("&nbsp;", " ")
