@@ -575,6 +575,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!(r#"https://www.mcbbs.net/home.php?mod=space&uid={}&do=index"#
                          , input.get(1).unwrap_or(&"{UID}"));
             }
+            "name" => {
+                if let Err(e) = webbrowser::open(&format!("https://www.mcbbs.net/home.php?mod=space&username={}",
+                                                          input.get(1).unwrap_or(&""))) {
+                    eprintln!("open failed {}", e);
+                }
+            }
             "stop" => break,
             _ => {
                 #[cfg(feature = "admin")]
