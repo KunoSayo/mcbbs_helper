@@ -1,6 +1,6 @@
 //https://doc.rust-lang.org/book/
 
-use std::collections::{HashMap, LinkedList};
+use std::collections::{HashMap, LinkedList, VecDeque};
 use std::fs::File;
 use std::io::{Read, stdin};
 use std::sync::{Arc, Weak};
@@ -9,7 +9,7 @@ use std::time::SystemTime;
 
 use chrono::{DateTime, Local};
 use regex::Regex;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::Duration;
 
 #[cfg(feature = "admin")]
@@ -95,8 +95,7 @@ impl McbbsThreadData {
 
 /// What THE ** CODE IT IS? MUTEX MUTEX MUTEX ARC ARC ARC
 pub struct McbbsData {
-    questions: Mutex<LinkedList<String>>,
-    water: Mutex<LinkedList<String>>,
+    questions: RwLock<LinkedList<String>>,
     question_cd: AtomicU64,
     water_cd: AtomicU64,
     #[cfg(feature = "admin")]
@@ -121,7 +120,6 @@ impl Default for McbbsData {
         }
         Self {
             questions: Default::default(),
-            water: Default::default(),
             question_cd: AtomicU64::new(5_000),
             water_cd: AtomicU64::new(15_000),
             #[cfg(feature = "admin")]
@@ -157,9 +155,10 @@ impl McbbsData {
         loop {
             match self.get_content(url).await {
                 Ok(lines) => {
-                    let mut list = self.questions.lock().await;
+                    let mut list = self.questions.read().await;
                     let mut i = 0;
                     let mut found = false;
+                    let mut cache = VecDeque::new();
                     while i < lines.len() {
                         let line = &lines[i];
 
@@ -172,10 +171,7 @@ impl McbbsData {
                                             println!();
                                             found = true;
                                         }
-                                        list.push_back(line.clone());
-                                        while list.len() > 249 {
-                                            list.pop_front();
-                                        }
+                                        cache.push_back(line);
                                         if OPEN.load(Ordering::Acquire) {
                                             if let Err(e) = webbrowser::open(&format!("https://www.mcbbs.net/{}", &matcher["url"])) {
                                                 eprintln!("open failed {}", e);
@@ -184,12 +180,23 @@ impl McbbsData {
                                         let idx = lines[i + j].find(r#""xw1">"#).unwrap_or(0);
                                         println!("{} \"https://www.mcbbs.net/{}\" {} {}", DateTime::<Local>::from(SystemTime::now()).format("%H:%M:%S")
                                             .to_string(), &matcher["url"], &matcher["title"], &lines[i + j][idx + 5..]);
+                                        list = self.questions.read().await;
                                     }
                                     break;
                                 }
                             }
                         }
                         i += 1;
+                    }
+                    if cache.len() > 0 {
+                        std::mem::drop(list);
+                        let mut list = self.questions.write().await;
+                        while let Some(v) = cache.pop_front() {
+                            list.push_back(v.clone());
+                        }
+                        while list.len() > 249 {
+                            list.pop_front();
+                        }
                     }
                 }
                 Err(e) => {
@@ -203,11 +210,11 @@ impl McbbsData {
 
 
     async fn water(&self) {
+        let mut list = LinkedList::new();
         let pattern: Regex = Regex::new(r#".*viewthread.*tid=(?P<tid>\d+).*"s xst">(?P<title>.*)</a>.*"#).unwrap();
         loop {
             match self.get_content("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no").await {
                 Ok(lines) => {
-                    let mut list = self.water.lock().await;
                     for line in lines {
                         let matcher = pattern.captures(&line);
                         if let Some(matcher) = matcher {
