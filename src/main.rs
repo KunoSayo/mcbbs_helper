@@ -111,7 +111,7 @@ impl Default for McbbsData {
         match File::open("cookie.cookie") {
             Ok(mut cookie_file) => {
                 if let Err(e) = cookie_file.read_to_string(&mut cookie) {
-                    eprintln!("read cookie file failed. {}", e);
+                    println!("read cookie file failed. {}", e);
                 }
             }
             Err(e) => {
@@ -494,11 +494,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "code" => {
-                println!("[font=微软雅黑][color=#A9B7C6][table=98%,Black]
-[tr=#2F2F2F][td]
-[p=15, 0, left]
-[/p]
-[/td][/tr][/table][/color][/font]")
+                println!("[font=Consolas][color=#A9B7C6][table=98%,Black]
+[tr=#2F2F2F][td][p=15, 0, left]
+[/p][/td][/tr][/table][/color][/font]")
             }
             "info" => {
                 println!("---begin info---");
