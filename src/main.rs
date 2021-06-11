@@ -210,7 +210,7 @@ impl McbbsData {
 
 
     async fn water(&self) {
-        let mut list = LinkedList::new();
+        let mut vec = VecDeque::new();
         let pattern: Regex = Regex::new(r#".*viewthread.*tid=(?P<tid>\d+).*"s xst">(?P<title>.*)</a>.*"#).unwrap();
         loop {
             match self.get_content("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=52&filter=author&orderby=dateline&mobile=no").await {
@@ -220,10 +220,13 @@ impl McbbsData {
                         if let Some(matcher) = matcher {
                             let tid = &matcher["tid"];
                             if tid.parse().unwrap_or(9000000) > 1000000 {
-                                if !list.contains(&tid.to_string()) {
-                                    list.push_back(tid.to_string());
-                                    while list.len() > 70 {
-                                        list.pop_front();
+                                if let Some(idx) = vec.iter().position(|s| s == tid) {
+                                    let got = vec.swap_remove_back(idx);
+                                    vec.push_back(got.unwrap());
+                                } else {
+                                    vec.push_back(tid.to_string());
+                                    while vec.len() > 70 {
+                                        vec.pop_front();
                                     }
                                     if OPEN.load(Ordering::Relaxed) {
                                         if let Err(e) = webbrowser::open(&format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
@@ -493,6 +496,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("{}", e);
                 }
             }
+            "live" => {
+                if let Err(e) = webbrowser::open("https://link.bilibili.com/p/center/index#/my-room/start-live") {
+                    eprintln!("{}", e);
+                }
+            }
             "code" => {
                 println!("[font=Consolas][color=#A9B7C6][table=98%,Black]
 [tr=#2F2F2F][td][p=15, 0, left]
@@ -593,5 +601,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
     Ok(())
 }
