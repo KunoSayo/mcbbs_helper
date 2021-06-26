@@ -98,6 +98,7 @@ pub struct McbbsData {
     questions: RwLock<LinkedList<String>>,
     question_cd: AtomicU64,
     water_cd: AtomicU64,
+    debug: AtomicBool,
     #[cfg(feature = "admin")]
     admin_cd: AtomicU64,
     request_lock: Mutex<()>,
@@ -122,6 +123,7 @@ impl Default for McbbsData {
             questions: Default::default(),
             question_cd: AtomicU64::new(5_000),
             water_cd: AtomicU64::new(15_000),
+            debug: AtomicBool::new(false),
             #[cfg(feature = "admin")]
             admin_cd: AtomicU64::new(15_000),
             request_lock: Default::default(),
@@ -140,7 +142,12 @@ impl McbbsData {
             .timeout(Duration::from_secs(10)).send().await?;
         match response.error_for_status() {
             Ok(r) => {
-                Ok(r.text().await?.lines().map(&str::to_string).collect())
+                Ok(r.text().await?.lines().map(|s| {
+                    if self.debug.load(Ordering::Acquire) {
+                        println!("{}", s);
+                    }
+                    s.to_string()
+                }).collect())
             }
             Err(e) => {
                 tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
@@ -222,7 +229,7 @@ impl McbbsData {
                             if tid.parse().unwrap_or(9000000) > 1000000 {
                                 if let Some(idx) = vec.iter().position(|s| s == tid) {
                                     let got = vec.swap_remove_back(idx);
-                                    vec.push_back(got.unwrap());
+                                    vec.push_back(tid.to_string());
                                 } else {
                                     vec.push_back(tid.to_string());
                                     while vec.len() > 70 {
@@ -593,6 +600,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                           input.get(1).unwrap_or(&""))) {
                     eprintln!("open failed {}", e);
                 }
+            }
+            "debug" => {
+                let debug = mcbbs.debug.load(Ordering::Acquire);
+                mcbbs.debug.store(!debug, Ordering::Release);
+                println!("Debug: {}", !debug);
             }
             "stop" => break,
             _ => {
