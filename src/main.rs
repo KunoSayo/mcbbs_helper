@@ -228,7 +228,47 @@ impl McbbsData {
                             let tid = &matcher["tid"];
                             if tid.parse().unwrap_or(9000000) > 1000000 {
                                 if let Some(idx) = vec.iter().position(|s| s == tid) {
-                                    let got = vec.swap_remove_back(idx);
+                                    vec.swap_remove_back(idx);
+                                    vec.push_back(tid.to_string());
+                                } else {
+                                    vec.push_back(tid.to_string());
+                                    while vec.len() > 70 {
+                                        vec.pop_front();
+                                    }
+                                    if OPEN.load(Ordering::Relaxed) {
+                                        if let Err(e) = webbrowser::open(&format!("https://www.mcbbs.net/thread-{}-1-1.html", &matcher["tid"])) {
+                                            eprintln!("open failed {}", e);
+                                        }
+                                    }
+                                    println!("{} https://www.mcbbs.net/thread-{}-1-1.html {}", DateTime::<Local>::from(SystemTime::now()).format("%H:%M:%S")
+                                        .to_string(), &matcher["tid"], &matcher["title"]);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("get water failed: {}", e);
+                    tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed) + 10000)).await;
+                }
+            }
+            tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed))).await;
+        }
+    }
+
+    async fn get_new(&self) {
+        let mut vec = VecDeque::new();
+        let pattern: Regex = Regex::new(r#".*viewthread.*tid=(?P<tid>\d+).*"s xst">(?P<title>.*)</a>.*"#).unwrap();
+        loop {
+            match self.get_content("https://www.mcbbs.net/forum.php?mod=forumdisplay&fid=2052&filter=author&orderby=dateline&mobile=no").await {
+                Ok(lines) => {
+                    for line in lines {
+                        let matcher = pattern.captures(&line);
+                        if let Some(matcher) = matcher {
+                            let tid = &matcher["tid"];
+                            if tid.parse().unwrap_or(9000000) > 1220446 {
+                                if let Some(idx) = vec.iter().position(|s| s == tid) {
+                                    vec.swap_remove_back(idx);
                                     vec.push_back(tid.to_string());
                                 } else {
                                     vec.push_back(tid.to_string());
@@ -606,10 +646,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mcbbs.debug.store(!debug, Ordering::Release);
                 println!("Debug: {}", !debug);
             }
+            "new" => {
+                let mcbbs = mcbbs.clone();
+                println!("getting new");
+                tokio::spawn(async move {
+                    mcbbs.get_new().await;
+                    println!("爬water结束")
+                });
+            }
             "stop" => break,
             _ => {
                 #[cfg(feature = "admin")]
                     admin::process(mcbbs.clone(), raw_input);
+                if let Ok(s) = std::fs::read_to_string(raw_input) {
+                    println!("{}", s);
+                }
             }
         }
     }
