@@ -69,10 +69,10 @@ impl McbbsThreadData {
                     }
                     Err(e) => {
                         eprintln!("{}", e);
-                        tokio::time::delay_for(Duration::from_millis(self.cd + 3000)).await;
+                        tokio::time::sleep(Duration::from_millis(self.cd + 3000)).await;
                     }
                 }
-                tokio::time::delay_for(Duration::from_millis(self.cd)).await;
+                tokio::time::sleep(Duration::from_millis(self.cd)).await;
             } else {
                 println!("mcbbs destroyed.");
                 break;
@@ -150,7 +150,7 @@ impl McbbsData {
                 }).collect())
             }
             Err(e) => {
-                tokio::time::delay_for(Duration::from_secs_f32(5.0)).await;
+                tokio::time::sleep(Duration::from_secs_f32(5.0)).await;
                 Err(e)
             }
         }
@@ -208,10 +208,10 @@ impl McbbsData {
                 }
                 Err(e) => {
                     eprintln!("{}", e);
-                    tokio::time::delay_for(Duration::from_millis(self.question_cd.load(Ordering::Relaxed) + 3000)).await;
+                    tokio::time::sleep(Duration::from_millis(self.question_cd.load(Ordering::Relaxed) + 3000)).await;
                 }
             }
-            tokio::time::delay_for(Duration::from_millis(self.question_cd.load(Ordering::Relaxed))).await;
+            tokio::time::sleep(Duration::from_millis(self.question_cd.load(Ordering::Relaxed))).await;
         }
     }
 
@@ -249,10 +249,10 @@ impl McbbsData {
                 }
                 Err(e) => {
                     eprintln!("get water failed: {}", e);
-                    tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed) + 10000)).await;
+                    tokio::time::sleep(Duration::from_millis(self.water_cd.load(Ordering::Relaxed) + 10000)).await;
                 }
             }
-            tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed))).await;
+            tokio::time::sleep(Duration::from_millis(self.water_cd.load(Ordering::Relaxed))).await;
         }
     }
 
@@ -289,10 +289,10 @@ impl McbbsData {
                 }
                 Err(e) => {
                     eprintln!("get water failed: {}", e);
-                    tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed) + 10000)).await;
+                    tokio::time::sleep(Duration::from_millis(self.water_cd.load(Ordering::Relaxed) + 10000)).await;
                 }
             }
-            tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed))).await;
+            tokio::time::sleep(Duration::from_millis(self.water_cd.load(Ordering::Relaxed))).await;
         }
     }
 
@@ -322,7 +322,7 @@ impl McbbsData {
             }
             Err(e) => {
                 eprintln!("view water failed: {}", e);
-                tokio::time::delay_for(Duration::from_millis(self.water_cd.load(Ordering::Relaxed) + 10000)).await;
+                tokio::time::sleep(Duration::from_millis(self.water_cd.load(Ordering::Relaxed) + 10000)).await;
             }
         }
     }
@@ -388,7 +388,7 @@ impl McbbsData {
 
         for x in &values[1..] {
             results.push(vec![]);
-            tokio::time::delay_for(Duration::from_micros(169961)).await;
+            tokio::time::sleep(Duration::from_micros(169961)).await;
 
             let url = format!("{}&polloptionid={}", url, x.0);
             let lines = match self.get_content(&url).await {
@@ -428,10 +428,10 @@ impl McbbsData {
         let q = self.question_cd.load(Ordering::Relaxed);
         println!("water_cd_ms: {}, question_cd_ms: {}", w, q);
         #[cfg(feature = "admin")]
-            {
-                let a = self.admin_cd.load(Ordering::Relaxed);
-                println!("admin_cd_ms: {}", a);
-            }
+        {
+            let a = self.admin_cd.load(Ordering::Relaxed);
+            println!("admin_cd_ms: {}", a);
+        }
         let map = self.listening_threads.lock().await;
         for (k, d) in map.iter() {
             println!("listening tid {} interval {}ms with replay_count: {}", *k, d.cd, d.last_replay.load(Ordering::Relaxed));
@@ -657,7 +657,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "stop" => break,
             _ => {
                 #[cfg(feature = "admin")]
-                    admin::process(mcbbs.clone(), raw_input);
+                admin::process(mcbbs.clone(), raw_input);
                 if let Ok(s) = std::fs::read_to_string(raw_input) {
                     println!("{}", s);
                 }
